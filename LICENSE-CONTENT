@@ -1,0 +1,63 @@
+Website Content License - All Rights Reserved
+
+Copyright (c) 2026 Sven Erik Matzen
+
+The MIT License in the file `LICENSE` covers ONLY the software in this
+repository: the generator source code (`sitegen/`, `generate.py`), its tests,
+its configuration format and the HTML/CSS/JS template markup.
+
+It does NOT cover the personal website content and media listed below. Those
+files are published here solely as a working reference site, so that the
+generator can be run, tested and understood end to end. They remain the
+exclusive property of Sven Erik Matzen and are NOT licensed for reuse.
+
+
+FILES COVERED BY THIS NOTICE
+
+  content/**                                  page and card Markdown,
+                                              all editorial and biographical text
+  templates/matzen/static/img/**              photographs and images
+  templates/matzen/static/*.png               app and touch icons
+  templates/matzen/static/*.ico
+  templates/matzen/static/favicon*
+  templates/matzen/static/apple-touch-icon.png
+  templates/matzen/static/android-chrome-*.png
+  templates/matzen/static/site.webmanifest    personal branding metadata
+  templates/matzen/static/*.mp3               audio recordings
+
+
+WHAT YOU MAY DO
+
+  - Read these files and study how they drive the generator.
+  - Keep them in a clone or fork for the purpose of running, testing or
+    developing the generator itself.
+
+
+WHAT YOU MAY NOT DO WITHOUT PRIOR WRITTEN PERMISSION
+
+  - Reproduce, republish, distribute or publicly display this content, in
+    whole or in part, on any website, in any publication or in any other
+    medium.
+  - Modify it or create derivative works from it.
+  - Use it commercially, or as training data for machine-learning systems.
+  - Use the name, likeness, photographs, biography, employment history,
+    certifications or profile links contained in it to represent yourself,
+    any other person, or any organisation.
+
+Nothing in this notice restricts uses permitted by applicable law without a
+licence, such as quotation or reporting.
+
+
+PERSONAL DATA
+
+This content names third parties, including family members. If you hold a
+copy of these files and are asked to remove such data, remove it.
+
+
+BUILDING YOUR OWN SITE
+
+Replace `content/` and the media listed above with your own files. The
+generator itself is yours to use, modify and redistribute under the MIT
+License - no permission needed.
+
+Contact: sven@matzen.cloud

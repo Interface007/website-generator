@@ -1,0 +1,47 @@
+<style>
+@import url('https://cdn.datatables.net/2.1.8/css/dataTables.dataTables.min.css');
+</style>
+
+<table id="berichte-table" class="display">
+  <thead>
+    <tr>
+      <th>Datum</th>
+      <th>Bericht</th>
+      <th>Autor</th>
+    </tr>
+  </thead>
+  <tbody>
+__ROWS_HTML__
+  </tbody>
+</table>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.datatables.net/2.1.8/js/dataTables.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  if (typeof DataTable !== 'undefined') {
+    new DataTable('#berichte-table', {
+      order: [[0, 'desc']],
+      columns: [
+        { orderable: true, type: 'date' },
+        { orderable: true },
+        { orderable: true }
+      ],
+      pageLength: 10,
+      language: {
+        search: 'Suche:',
+        lengthMenu: '_MENU_ Eintraege pro Seite',
+        info: '_START_ bis _END_ von _TOTAL_ Eintraegen',
+        infoEmpty: 'Keine Eintraege vorhanden',
+        zeroRecords: 'Keine passenden Eintraege gefunden',
+        paginate: {
+          first: 'Erste',
+          last: 'Letzte',
+          next: 'Weiter',
+          previous: 'Zurueck'
+        }
+      }
+    });
+  }
+});
+</script>

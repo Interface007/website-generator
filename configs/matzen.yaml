@@ -1,0 +1,234 @@
+# PRODUCTION config for www.matzen.cloud, for use INSIDE the hp repo.
+#
+# Assumes this file lives at   hp/site-generator/configs/matzen.yaml
+# and writes the finished site into   hp/src   (the folder Azure Static
+# Web Apps deploys). All relative paths are relative to THIS file; "~" and
+# environment variables are expanded, so it runs the same on any host.
+#
+# Differences vs. the in-repo dev config (site-generator/configs/matzen.yaml):
+#   output.dir            -> ../../src          (was ../output/matzen)
+#   excel_table.workbook  -> ../../data/...     (was ../../hp/data/...)
+#   privacy markdown_file -> ../../data/...     (was ../../hp/data/...)
+#   sitemap.scan_dir      -> ../../src          (was ../../hp/src)
+#   sitemap.git_repo      -> ../..              (was ../../hp)
+# Everything else is identical.
+
+site:
+  name: hp
+  title: Sven Erik Matzen
+  base_url: https://www.matzen.cloud/
+
+markdown:
+  flavour: hp                 # Markdig-equivalent extension set + heading ids
+  table_class: gradienttable  # site table styling (themes/style.css)
+
+templates:
+  dir: ../templates/matzen
+  newline_sequence: "\r\n"    # hp templates are CRLF
+
+output:
+  # The deployed site folder. NOTE: this pipeline updates src in place (no
+  # clean_output) — exactly like the old C# generator did.
+  dir: ../generatedwebsite
+  newline: "\r\n"
+
+pipeline:
+  # Static site files (icons, scripts, styles, images, plus the few other
+  # files a complete deployable site needs).
+  - step: copy_assets
+    source: ../templates/matzen/static
+    include:
+      - "*.ico"
+      - "*.js"
+      - "*.css"
+      - "*.png"
+      - "*.jpg"
+      - "*.webp"
+      - "*.webmanifest"
+      # NOTE: *.mp3 intentionally NOT passed through — audio is served from
+      # Azure Storage (matzencontent/$web), never bundled into the SWA.
+      - "*.json"
+      - "googleee*.html"
+
+  # Hand-maintained pages, now rendered from Markdown; per-page front
+  # matter drives title/heading/OG metadata/foot scripts/template.
+  - step: content_page
+    markdown_dir: ../content/matzen
+    title_suffix: " | Sven Erik Matzen"
+    portrait_image: img/pp.jpg
+    portrait_modifier: ""
+
+  # Card collections: each page keeps only clean intro Markdown + a
+  # "<!-- cards -->" placeholder; the cards themselves are individual
+  # Markdown files under content/matzen/<page>/ rendered via a card
+  # template and spliced into the page here.
+  - step: cards
+    collection: ../content/matzen/professional
+    card_template: card-project.html.j2
+    grid_class: projects-grid
+    icon_dir: project
+    page: professional.html
+  - step: cards
+    collection: ../content/matzen/biochemistry
+    card_template: card-project.html.j2
+    grid_class: projects-grid
+    icon_dir: project
+    page: biochemistry.html
+  - step: cards
+    collection: ../content/matzen/projects/consulting
+    card_template: card-project.html.j2
+    grid_class: projects-grid
+    icon_dir: project
+    page: projects.html
+    placeholder: "<!-- cards: consulting -->"
+  - step: cards
+    collection: ../content/matzen/projects/personal
+    card_template: card-project.html.j2
+    grid_class: projects-grid
+    icon_dir: project
+    page: projects.html
+    placeholder: "<!-- cards: personal -->"
+  - step: cards
+    collection: ../content/matzen/profiles
+    card_template: card-profile.html.j2
+    grid_class: profiles-grid
+    icon_dir: brand
+    icon_key: icon
+    page: profiles.html
+  - step: cards
+    collection: ../content/matzen/mooc-provider
+    card_template: card-mooc-provider.html.j2
+    grid_class: mooc-provider-grid
+    page: mooc-provider.html
+
+  # MOOC course table: Excel -> <tbody> rows, spliced into the mooc.html
+  # page rendered from content/matzen/mooc.md by the content_page step.
+  - step: excel_table
+    workbook: ../content/matzen/courses.xlsx
+    sheet: 1
+    skip_rows: 1
+    columns:
+      - { index: 1, type: text }              # Title
+      - { index: 2, type: text }              # Platform
+      - { index: 3, type: text }              # Provider
+      - { index: 4, type: date, format: "%Y-%m-%d" }
+    sort_by: 3
+    sort_desc: true
+    row_template: '<tr><td>{0}</td><td>{1}</td><td>{2}</td><td class="col-date">{3}</td></tr>'
+    template_file: mooc.html
+    template_from_output: true
+    marker_open: "<tbody>"
+    marker_close: "</tbody>"
+    output: mooc.html
+
+  # Obsidian vault articles -> article-*.html + articles.html overview +
+  # articles.json manifest + language filter.
+  - step: articles
+    source_dir: ../content/matzen/articles
+    page_prefix: article-
+    skip_files: [topics.md]
+    disclaimers: [ai-article-notice.html, ai-article-backnavi.html]
+    title_suffix: " | Sven Erik Matzen"
+    portrait_image: img/pp-ai-light.png
+    portrait_modifier: " ai-portrait"
+    overview_output: articles.html
+    overview_intro: articles-overview-intro.md
+    manifest: articles.json
+    lang_filter: article-lang-filter.html
+    overview_title: "Sven Erik Matzen – Articles"
+    overview_description: >-
+      Articles by Sven Erik Matzen using AI – short deep dives into software
+      architecture, IT security, physics, astrophysics and biochemistry,
+      generated using AI systems like Claude Code, Perplexity, GitHub Copilot
+      and others.
+    overview_language: en-US
+    # --- Spoken-word audio via TTS (opt-in) -----------------------------
+    # Erzeugt pro Artikel eine Audiodatei, ergaenzt articles.json um
+    # audioUrl / audioDurationSec und fuegt einen Player in jede
+    # Artikelseite ein. Provider waehlbar: "piper" (lokal) oder "azure"
+    # (Azure AI Speech / Foundry). Details: deploy/integration.md.
+    #
+    # Variante A — Piper (lokal, offline):
+    # audio:
+    #   enabled: true
+    #   format: mp3                       # "mp3" (ffmpeg) oder "wav"
+    #   output_dir: audio                 # -> src/audio/<slug>.mp3
+    #   player_template: article-audio-player.html
+    #   provider: piper
+    #   piper_exe: piper                 # oder voller Pfad zur piper.exe
+    #   voices:
+    #     de: "../../tts/de_DE-thorsten-high.onnx"
+    #     en: "../../tts/en_US-lessac-high.onnx"
+    #
+    # Variante B — Azure AI Speech (Cloud, neuronale Stimmen, HTTP-Provider):
+    # audio:
+    #   enabled: true
+    #   provider: azure
+    #   format: mp3
+    #   output_dir: audio
+    #   # Throttle: synthesize at most this many NEW audio files per run (cached
+    #   # files are always reused for free; the rest is deferred to later runs).
+    #   # Keeps the initial Azure TTS bill small. Remove for no cap.
+    #   batch_size: 30
+    #   # Public base URL of the audio files. They are served from the Azure
+    #   # Storage static website ($web container of the "matzencontent" account),
+    #   # NOT from the SWA. The generator writes files to src/audio (local
+    #   # staging, git-ignored) and the publish script uploads them to $web/audio.
+    #   url_prefix: "https://matzencontent.z1.web.core.windows.net/audio"
+    #   player_template: article-audio-player.html
+    #   azure:
+    #     # Azure AI Foundry / AI Services resource: the Speech REST host is the
+    #     # resource's custom endpoint under /tts (NOT {region}.tts.speech.microsoft.com,
+    #     # which returns a 502 for this resource). The generator appends
+    #     # /cognitiveservices/v1. Region is derived from the resource itself.
+    #     endpoint: "https://sem-we.cognitiveservices.azure.com/tts"
+    #     key_env: AZURE_SPEECH_KEY      # Schluessel aus Umgebungsvariable
+    #     # DragonHD voices are LLM-based and slow to first byte; a full article
+    #     # easily exceeds the 60s default -> "read operation timed out". Give long
+    #     # syntheses more headroom.
+    #     timeout: 180
+    #     voices:
+    #       de: de-DE-Mia:MAI-Voice-2
+    #       en: en-US-Tiana:DragonHDFlashLatestNeural
+    # Variante C — Azure AI Speech SDK (azure-cognitiveservices-speech):
+    # audio:
+    #   enabled: true
+    #   provider: azure-sdk
+    #   format: mp3
+    #   output_dir: audio
+    #   batch_size: 5
+    #   url_prefix: "https://matzencontent.z1.web.core.windows.net/audio"
+    #   player_template: article-audio-player.html
+    #   azure:
+    #     endpoint: "https://sem-test-froundry.cognitiveservices.azure.com/tts"
+    #     key_env: AZURE_SPEECH_KEY
+    #     timeout: 180
+    #     voices:
+    #       de: de-DE-Mia:MAI-Voice-2
+    #       en: en-US-Tiana:DragonHDFlashLatestNeural
+
+  # Standalone content page (privacy policy) in the site layout.
+  - step: content_page
+    markdown_file: ../content/matzen/privacypolicy.md
+    title_suffix: " | Sven Erik Matzen"
+    portrait_image: img/pp.jpg
+    portrait_modifier: ""
+
+  # Flip-cards quiz data maintained next to the articles in the vault.
+  # - step: copy_file
+  #   source: "~/SynologyDrive/ObsidianVault/1102 - Artikel/flip-cards.json"
+  #   optional: true
+
+  # sitemap.xml over all deployed pages in src; <lastmod> comes from an
+  # article's content date, then the last Git commit, then the file mtime.
+  - step: sitemap
+    scan_dir: ../../src
+    git_repo: ../..
+    # 404.html is the noindex error page (SWA responseOverrides) — never list it.
+    exclude: ["mooc-template.html", "google*", "404.html"]
+    priorities:
+      - { pattern: "index.html", priority: "1.00" }
+      - { pattern: "article-*", priority: "0.64" }
+      - { pattern: "mooc-provider.html", priority: "0.64" }
+    default_priority: "0.80"
+    output: sitemap.xml

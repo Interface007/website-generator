@@ -1,0 +1,10 @@
+<a href="{{ link|e }}"{% if target %} target="{{ target|e }}"{% endif %} class="profile-card-link">
+  <div class="profile-card {{ variant|e }}">
+    <div class="profile-icon {{ icon|e }}">{{ icon_svg }}</div>
+    <div class="profile-content">
+      <h3>{{ title|e }}</h3>
+      {{ description }}
+      <span class="profile-type">{{ type|e }}</span>
+    </div>
+  </div>
+</a>

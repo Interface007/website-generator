@@ -1,0 +1,8 @@
+<a class="mooc-provider-card" href="{{ link|e }}"{% if target %} target="{{ target|e }}"{% endif %}{% if rel %} rel="{{ rel|e }}"{% endif %}>
+  <div class="mooc-provider-header">
+    <h3>{{ title|e }}</h3>
+    <div class="mooc-provider-badges">{% for badge in badges %}<span class="mooc-badge mooc-badge-{{ badge.kind|e }}">{{ badge.label|e }}</span>{% endfor %}</div>
+  </div>
+  {{ description }}
+  <div class="mooc-provider-facts">{% for fact in facts %}<div class="mooc-fact"><strong>{{ fact.label|e }}:</strong> {{ fact.value|e }}</div>{% endfor %}</div>
+</a>

@@ -1,0 +1,80 @@
+# Site config for the Shantychor Lägerdorf website.
+
+site:
+  name: homepage
+  title: Shantychor Lägerdorf
+  base_url: https://shanty-chor-laegerdorf.de/
+  # External host serving the processed gallery media (siteconfig.json:
+  # gallery_media_base_url).
+  gallery_media_base_url: https://sclmedia.z6.web.core.windows.net/gallery
+
+markdown:
+  flavour: homepage           # python-markdown: extra + tables + sane_lists
+
+templates:
+  dir: ../templates/homepage
+
+output:
+  # For production use, point this at the deployed site folder (../../semhps/site).
+  dir: ../output/shanty
+
+pipeline:
+  - step: clean_output
+
+  # Site stylesheet + gallery CSS/JS (maintained as template assets).
+  - step: copy_file
+    source: ../templates/homepage/assets/style.css
+    target: assets/style.css
+  - step: copy_file
+    source: ../templates/homepage/assets/bilder-gallery.css
+    target: assets/bilder-gallery.css
+  - step: copy_file
+    source: ../templates/homepage/assets/bilder-gallery.js
+    target: assets/bilder-gallery.js
+
+  # Shared media assets; galleries and favicons are generated below.
+  - step: copy_assets
+    source: ../../semhps/source/_assets
+    target: assets
+    exclude_dirs: [gallery, favicons]
+
+  # Gallery media: images resized (max 1024px), JPEG -> WebP, 210x128
+  # thumbnails; videos copied with ffmpeg-extracted thumbnails.
+  - step: gallery
+    assets_source: ../../semhps/source/_assets
+    target: assets
+
+  # Favicons generated from one source image.
+  - step: favicons
+    source: ../../semhps/source/_assets/favicons/favicon-image.png
+    target: assets/favicons
+    sizes: [16, 32, 48, 180, 192, 512]
+    ico_sizes: [16, 32, 48]
+
+  # Azure Static Web Apps routing config.
+  - step: copy_file
+    source: ../../semhps/staticwebapp.config.json
+    optional: true
+
+  # Section pages: source/<section>/index.md -> <slug>/index.html, flat
+  # report detail pages, navigation, per-page galleries, footer links,
+  # themed 404 page and sitemap.
+  - step: sections
+    source_dir: ../../semhps/source
+    assets_source: ../../semhps/source/_assets
+    layout: layout.html.j2
+    site_title: Shantychor Lägerdorf
+    footer: "© 2026 Shantychor Lägerdorf"
+    reports:
+      section: berichte
+      table_template: berichte-table.html
+    links_table_slug: links
+    gallery_page_slug: bilder
+    footer_link_slugs: [impressum, datenschutz]
+    not_found:
+      output: 404.html
+      template: not-found.html
+      title: Seite nicht gefunden
+    sitemap:
+      git_repo: ../../semhps
+      output: sitemap.xml

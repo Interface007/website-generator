@@ -1,0 +1,22 @@
+{
+    "name": "Sven Erik Matzen – Cloud & Software Architect",
+    "short_name": "Sven Erik Matzen",
+    "description": "Cloud Architecture, Security Engineering & AI Solutions by Sven Erik Matzen.",
+    "icons": [
+        {
+            "src": "/android-chrome-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/android-chrome-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ],
+    "start_url": "/index.html",
+    "scope": "/",
+    "theme_color": "#ffffff",
+    "background_color": "#ffffff",
+    "display": "standalone"
+}

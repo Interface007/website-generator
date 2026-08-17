@@ -1,0 +1,20 @@
+{%- set icon_class = {'automation': 'windows', 'utility': 'camera', 'personal': 'music', 'iot': 'home'}[variant] -%}
+{%- if link %}<a href="{{ link|e }}"{% if target %} target="{{ target|e }}"{% endif %}{% if rel %} rel="{{ rel|e }}"{% endif %} class="project-card-link">
+{% else %}<div class="project-card-link">
+{% endif -%}
+  <div class="project-card {{ variant|e }}">
+    <div class="project-icon {{ icon_class }}">{{ icon_svg }}</div>
+    <div class="project-content">
+      <h3>{{ title|e }}</h3>
+      {{ description }}
+{%- if tags %}
+      <div class="project-features">{% for tag in tags %}<span class="feature-tag">{{ tag|e }}</span>{% endfor %}</div>
+{%- endif %}
+      <span class="project-type">{{ type|e }}</span>
+    </div>
+  </div>
+{%- if link %}
+</a>
+{%- else %}
+</div>
+{%- endif %}

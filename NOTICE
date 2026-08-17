@@ -1,0 +1,21 @@
+website-generator
+Copyright (c) 2026 Sven Erik Matzen
+
+This product includes icons from Google Material Symbols
+(https://github.com/google/material-design-icons), licensed under the
+Apache License, Version 2.0.
+
+  Affected files: templates/matzen/icons/project/*.svg
+  Licence text:   third-party/material-symbols/LICENSE
+  Details:        third-party/material-symbols/README.md
+
+These icons are modified copies of the originals: they were renamed and given
+presentation attributes (class, fill, aria-hidden, width/height) for inline
+embedding. No path geometry was edited.
+
+The generator inlines these icons into the pages it builds, so generated sites
+carry them too. If you redistribute a site built with this generator, the same
+Apache-2.0 obligations apply to you.
+
+Other third-party assets, including icons whose origin is still unresolved,
+are listed in third-party/README.md.
