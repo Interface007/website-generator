@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from sitegen.config import ConfigError, load_config
+from sitegen.logutil import log_ts
 from sitegen.pipeline import run_pipeline
 
 
@@ -29,9 +30,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
 
-    print(f"Building site '{config.name}' -> {config.output_dir}")
+    log_ts(f"Building site '{config.name}' -> {config.output_dir}")
     run_pipeline(config)
-    print("Done.")
+    log_ts("Done.")
     return 0
 
 

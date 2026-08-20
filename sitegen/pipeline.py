@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import time
+
 from .config import BuildContext, SiteConfig
+from .logutil import log_ts
 from .steps import STEP_REGISTRY
 
 
@@ -14,7 +17,7 @@ def run_pipeline(config: SiteConfig) -> BuildContext:
         options = dict(step_config)
         step_name = options.pop("step")
         if options.pop("enabled", True) is False:
-            print(f"[{index + 1}] {step_name}: disabled, skipping")
+            log_ts(f"[{index + 1}] {step_name}: disabled, skipping")
             continue
         try:
             step = STEP_REGISTRY[step_name]
@@ -23,7 +26,10 @@ def run_pipeline(config: SiteConfig) -> BuildContext:
             raise SystemExit(
                 f"Unknown pipeline step '{step_name}' (known steps: {known})"
             ) from None
-        print(f"[{index + 1}/{len(config.pipeline)}] {step_name}")
+        log_ts(f"[{index + 1}/{len(config.pipeline)}] {step_name} - start")
+        started = time.monotonic()
         step(ctx, options)
+        elapsed = time.monotonic() - started
+        log_ts(f"[{index + 1}/{len(config.pipeline)}] {step_name} - done in {elapsed:.1f}s")
 
     return ctx

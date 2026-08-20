@@ -30,6 +30,7 @@ import html as _html
 import json
 import re
 import subprocess
+import time
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +40,7 @@ from .audio_base import TTSProvider
 from .audio_azure_http import AZURE_DEFAULT_OUTPUT_FORMAT, AzureSpeechProvider
 from .audio_azure_sdk import AzureSpeechSdkProvider
 from .audio_piper import PiperProvider
+from .logutil import log_ts
 
 # -- Markdown -> plain readable speech text -------------------------------
 
@@ -148,7 +150,7 @@ def generate_article_audio(
     fmt: str = "mp3",
     batch_size: int | None = None,
     cache_name: str = "audio-index.json",
-    log: Callable[[str], None] = print,
+    log: Callable[[str], None] = log_ts,
 ) -> dict[str, AudioResult]:
     """Synthesize audio for ``items`` into ``audio_dir`` with ``provider``,
     caching by content hash. Returns ``{slug: AudioResult}`` for the items
@@ -217,10 +219,11 @@ def generate_article_audio(
 
         # Progress logging per article (STORY 2026-07-15-003): name before the
         # synthesis starts, then "ok" / "failed" — makes long runs observable.
-        log(f"Audio: {item.slug} ...")
+        log(f"Audio: {item.slug} ({len(item.text)} chars) ...")
+        item_started = time.monotonic()
         wav_path = audio_dir / f"{item.slug}.wav"
         if not provider.synthesize_wav(item.text, item.lang, wav_path):
-            log(f"Audio: {item.slug} failed")
+            log(f"Audio: {item.slug} failed after {time.monotonic() - item_started:.1f}s")
             log(f"WARNING: {provider.name} synthesis failed for {item.slug} — skipping audio.")
             skipped += 1
             continue
@@ -228,7 +231,7 @@ def generate_article_audio(
         try:
             duration = int(round(wav_duration_seconds(wav_path)))
         except (wave.Error, EOFError, OSError) as exc:
-            log(f"Audio: {item.slug} failed")
+            log(f"Audio: {item.slug} failed after {time.monotonic() - item_started:.1f}s")
             log(f"WARNING: could not read audio duration for {item.slug}: {exc} — skipping.")
             wav_path.unlink(missing_ok=True)
             skipped += 1
@@ -247,7 +250,7 @@ def generate_article_audio(
         results[item.slug] = AudioResult(url=url, duration_sec=duration)
         new_cache[item.slug] = {"hash": digest, "duration": duration}
         generated += 1
-        log(f"Audio: {item.slug} ok")
+        log(f"Audio: {item.slug} ok in {time.monotonic() - item_started:.1f}s")
 
     _prune_orphans(audio_dir, {item.slug for item in items}, cache_name, log)
     cache_path.write_text(json.dumps(new_cache, indent=2, ensure_ascii=False), encoding="utf-8")

@@ -238,10 +238,10 @@ class TestGenerateAudio:
         provider = FakeProvider({"de": "de.onnx", "en": "en.onnx"}, fail_langs={"en"})
         generate_article_audio(self._items(), audio_dir=tmp_path / "a", url_prefix="/audio",
                                provider=provider, fmt="wav", log=msgs.append)
-        i_de = msgs.index("Audio: article-de ...")
-        assert msgs[i_de + 1] == "Audio: article-de ok"
-        i_en = msgs.index("Audio: article-en ...")
-        assert msgs[i_en + 1] == "Audio: article-en failed"
+        i_de = next(i for i, m in enumerate(msgs) if m.startswith("Audio: article-de ("))
+        assert msgs[i_de + 1].startswith("Audio: article-de ok")
+        i_en = next(i for i, m in enumerate(msgs) if m.startswith("Audio: article-en ("))
+        assert msgs[i_en + 1].startswith("Audio: article-en failed")
 
     def test_progress_logging_absent_for_cache_hits(self, tmp_path):
         items = self._items()

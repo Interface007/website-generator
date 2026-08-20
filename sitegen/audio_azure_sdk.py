@@ -6,7 +6,10 @@ import importlib
 import html as _html
 import json
 import tempfile
+import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import suppress
@@ -35,6 +38,28 @@ def _load_speechsdk():
 def _safe_unlink(path: Path) -> None:
     with suppress(FileNotFoundError, PermissionError):
         path.unlink()
+
+
+# Timed-out syntheses (see synthesize_wav) leave a native SDK call running on
+# a background thread after we stop waiting for it. Garbage-collecting the
+# synthesizer / audio_config / speech_config objects while that native call
+# is still in flight crashes the whole process (observed: python.exe exit
+# code -1073741819 / STATUS_ACCESS_VIOLATION, no Python traceback). Keep
+# strong references here until the abandoned future actually completes.
+_abandoned_lock = threading.Lock()
+_abandoned_syntheses: list[tuple] = []
+
+
+def _reap_abandoned(entry: tuple, log) -> None:
+    pool, _synthesizer, _audio_config, _speech_config, wav_path = entry
+    with suppress(Exception):
+        pool.shutdown(wait=True)
+    _safe_unlink(wav_path)
+    with _abandoned_lock:
+        with suppress(ValueError):
+            _abandoned_syntheses.remove(entry)
+    if log:
+        log(f"  Azure Speech SDK: abandoned synthesis for {wav_path.name} finished in the background.")
 
 
 def _dump_result_debug(result, speechsdk, log, prefix: str = "speech_result") -> None:
@@ -195,20 +220,48 @@ class AzureSpeechSdkProvider(TTSProvider):
         audio_config = None
         synthesizer = None
         result = None
+        started = time.monotonic()
         try:
             speech_config = self._speech_config(speechsdk)
             audio_config = speechsdk.audio.AudioOutputConfig(filename=str(wav_path))
             synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
-            result = synthesizer.speak_ssml_async(self._ssml(voice, text)).get()
+            # self.timeout was previously configured but never enforced, so a
+            # stuck WebSocket call (no error, no data) blocked the whole build
+            # indefinitely. Run the blocking call in a worker thread and give
+            # up after ``self.timeout`` seconds instead of waiting forever.
+            # Do NOT use the executor as a context manager: its __exit__ calls
+            # shutdown(wait=True), which would itself block on the hung thread.
+            pool = ThreadPoolExecutor(max_workers=1)
+            future = pool.submit(synthesizer.speak_ssml_async(self._ssml(voice, text)).get)
+            try:
+                result = future.result(timeout=self.timeout)
+            except FutureTimeoutError:
+                elapsed = time.monotonic() - started
+                self.log(
+                    f"  Azure Speech SDK: synthesis TIMED OUT after {elapsed:.0f}s "
+                    f"(timeout={self.timeout}s, text length={len(text)} chars) — skipping."
+                )
+                # Keep the native objects alive until the abandoned call
+                # actually finishes (see _reap_abandoned) instead of letting
+                # them fall out of scope here, which crashed the process.
+                entry = (pool, synthesizer, audio_config, speech_config, wav_path)
+                with _abandoned_lock:
+                    _abandoned_syntheses.append(entry)
+                future.add_done_callback(lambda _f, entry=entry: _reap_abandoned(entry, self.log))
+                return False
+            pool.shutdown(wait=False)
         except Exception as exc:  # noqa: BLE001
             self.log(f"  Azure Speech SDK request failed: {exc}")
+            self.log(f"  {traceback.format_exc()}")
             synthesizer = None
             audio_config = None
             speech_config = None
             _safe_unlink(wav_path)
             return False
 
+        elapsed = time.monotonic() - started
         if getattr(result, "reason", None) == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            self.log(f"  Azure Speech SDK: synthesized in {elapsed:.1f}s.")
             return wav_path.is_file()
 
         if getattr(result, "reason", None) == speechsdk.ResultReason.Canceled:
