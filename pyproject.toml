@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sitegen"
+dynamic = ["version"]
+description = "Static site generator that builds a website from markdown, images and YAML configuration."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "Sven Erik Matzen" }]
+keywords = ["static-site-generator", "markdown", "jinja2"]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Internet :: WWW/HTTP :: Site Management",
+]
+dependencies = [
+    "Jinja2>=3.1",
+    "PyYAML>=6.0",
+    "Markdown>=3.5",
+    "openpyxl>=3.1",
+    "Pillow>=10.0",
+    "imageio-ffmpeg>=0.5.1",
+    "azure-cognitiveservices-speech>=1.43.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.urls]
+Homepage = "https://github.com/Interface007/website-generator"
+Repository = "https://github.com/Interface007/website-generator"
+
+[project.scripts]
+sitegen-build = "sitegen.cli:main"
+
+# Ship only the generator package; configs, templates and content stay with the
+# site repository that consumes this package.
+[tool.setuptools.packages.find]
+include = ["sitegen*"]
+
+# Single source of truth for the version: sitegen/__init__.py.
+[tool.setuptools.dynamic]
+version = { attr = "sitegen.__version__" }
