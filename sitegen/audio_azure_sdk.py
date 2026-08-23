@@ -8,6 +8,7 @@ import json
 import tempfile
 import threading
 import time
+import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone
@@ -124,13 +125,15 @@ class AzureSpeechSdkProvider(TTSProvider):
 
     def __init__(self, key: str, region: str | None = None, endpoint: str | None = None,
                  voices: dict[str, str] | None = None, output_format: str = "riff-24khz-16bit-mono-pcm",
-                 timeout: int = 60, log=None, debug: bool = False):
+                 timeout: int = 60, log=None, debug: bool = False,
+                 fallback_voices: dict[str, str] | None = None):
         super().__init__(voices, log, debug)
         self.key = key or ""
         self.region = region or ""
         self.endpoint = endpoint or ""
         self.output_format = output_format
         self.timeout = timeout
+        self.fallback_voices = fallback_voices or {}
         self._speechsdk = None
 
     def _sdk_endpoint(self) -> str:
@@ -215,16 +218,54 @@ class AzureSpeechSdkProvider(TTSProvider):
             self.log("  Azure Speech SDK: package 'azure-cognitiveservices-speech' is not installed.")
             return False
 
+        if self._synthesize_once(speechsdk, text, voice, wav_path):
+            return True
+
+        fallback_voice = self.fallback_voices.get(lang)
+        if not fallback_voice or fallback_voice == voice:
+            return False
+        self.log(f"  Azure Speech SDK: primary voice {voice!r} failed — retrying with fallback voice {fallback_voice!r}.")
+        return self._synthesize_once(speechsdk, text, fallback_voice, wav_path)
+
+    def _synthesize_once(self, speechsdk, text: str, voice: str, wav_path: Path) -> bool:
+        """One synthesis attempt with a specific voice. Returns success/failure;
+        never raises (external-call errors are logged and turned into False)."""
         wav_path.parent.mkdir(parents=True, exist_ok=True)
         speech_config = None
         audio_config = None
         synthesizer = None
         result = None
         started = time.monotonic()
+        # Progress markers filled in by the SDK's own callbacks (see below):
+        # distinguish "the server never answered at all" from "it answered
+        # and is slowly streaming audio" — the two look identical from the
+        # outside without this, and only one of them is a genuine hang.
+        progress = {"started_at": None, "bytes": 0}
         try:
             speech_config = self._speech_config(speechsdk)
             audio_config = speechsdk.audio.AudioOutputConfig(filename=str(wav_path))
             synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+
+            def _on_started(_evt):
+                progress["started_at"] = time.monotonic() - started
+
+            def _on_synthesizing(evt):
+                try:
+                    n = len(evt.result.audio_data)
+                except Exception:  # noqa: BLE001
+                    n = 0
+                progress["bytes"] += n
+
+            # Some SDK stubs (tests, older SDK versions) may not expose these
+            # events — progress logging is best-effort, never fatal.
+            with suppress(AttributeError):
+                synthesizer.synthesis_started.connect(_on_started)
+            with suppress(AttributeError):
+                synthesizer.synthesizing.connect(_on_synthesizing)
+
+            # Explicit start marker for the external call, so a hang shows up
+            # in the log as a start with no matching end/timeout line yet.
+            self.log(f"  Azure Speech SDK: call started (endpoint={self._sdk_endpoint() or self.region}, voice={voice}).")
             # self.timeout was previously configured but never enforced, so a
             # stuck WebSocket call (no error, no data) blocked the whole build
             # indefinitely. Run the blocking call in a worker thread and give
@@ -233,23 +274,45 @@ class AzureSpeechSdkProvider(TTSProvider):
             # shutdown(wait=True), which would itself block on the hung thread.
             pool = ThreadPoolExecutor(max_workers=1)
             future = pool.submit(synthesizer.speak_ssml_async(self._ssml(voice, text)).get)
-            try:
-                result = future.result(timeout=self.timeout)
-            except FutureTimeoutError:
-                elapsed = time.monotonic() - started
-                self.log(
-                    f"  Azure Speech SDK: synthesis TIMED OUT after {elapsed:.0f}s "
-                    f"(timeout={self.timeout}s, text length={len(text)} chars) — skipping."
-                )
-                # Keep the native objects alive until the abandoned call
-                # actually finishes (see _reap_abandoned) instead of letting
-                # them fall out of scope here, which crashed the process.
-                entry = (pool, synthesizer, audio_config, speech_config, wav_path)
-                with _abandoned_lock:
-                    _abandoned_syntheses.append(entry)
-                future.add_done_callback(lambda _f, entry=entry: _reap_abandoned(entry, self.log))
-                return False
+            # Poll in short slices instead of one blind wait so a heartbeat
+            # with live progress (server responded? bytes streaming?) reaches
+            # the log well before the final timeout — the outer publish
+            # script's 30s heartbeat has no visibility into this at all.
+            waited = 0.0
+            heartbeat_interval = 30.0
+            while True:
+                remaining = self.timeout - waited
+                if remaining <= 0:
+                    raise FutureTimeoutError()
+                try:
+                    result = future.result(timeout=min(heartbeat_interval, remaining))
+                    break
+                except FutureTimeoutError:
+                    waited = time.monotonic() - started
+                    if waited >= self.timeout:
+                        raise
+                    self.log(
+                        f"  Azure Speech SDK: still waiting after {waited:.0f}s "
+                        f"(server responded: {progress['started_at'] is not None}, "
+                        f"bytes received: {progress['bytes']}) ..."
+                    )
             pool.shutdown(wait=False)
+        except FutureTimeoutError:
+            elapsed = time.monotonic() - started
+            self.log(
+                f"  Azure Speech SDK: synthesis TIMED OUT after {elapsed:.0f}s "
+                f"(timeout={self.timeout}s, text length={len(text)} chars, voice={voice}, "
+                f"server responded: {progress['started_at'] is not None}, "
+                f"bytes received: {progress['bytes']}) — skipping."
+            )
+            # Keep the native objects alive until the abandoned call
+            # actually finishes (see _reap_abandoned) instead of letting
+            # them fall out of scope here, which crashed the process.
+            entry = (pool, synthesizer, audio_config, speech_config, wav_path)
+            with _abandoned_lock:
+                _abandoned_syntheses.append(entry)
+            future.add_done_callback(lambda _f, entry=entry: _reap_abandoned(entry, self.log))
+            return False
         except Exception as exc:  # noqa: BLE001
             self.log(f"  Azure Speech SDK request failed: {exc}")
             self.log(f"  {traceback.format_exc()}")
@@ -261,7 +324,7 @@ class AzureSpeechSdkProvider(TTSProvider):
 
         elapsed = time.monotonic() - started
         if getattr(result, "reason", None) == speechsdk.ResultReason.SynthesizingAudioCompleted:
-            self.log(f"  Azure Speech SDK: synthesized in {elapsed:.1f}s.")
+            self.log(f"  Azure Speech SDK: synthesized in {elapsed:.1f}s (voice={voice}).")
             return wav_path.is_file()
 
         if getattr(result, "reason", None) == speechsdk.ResultReason.Canceled:

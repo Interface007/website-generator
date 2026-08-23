@@ -80,6 +80,7 @@ from ..audio import (
 )
 from ..config import BuildContext
 from ..hp_pages import Article, HpPageRenderer, read_content
+from ..logutil import log_ts
 from ..textutil import is_sync_artifact, replace_wiki_links
 
 _MIN_DATE = datetime.min
@@ -208,7 +209,7 @@ def _build_provider(ctx: BuildContext, audio_opts: dict, debug: bool) -> TTSProv
             piper_exe=audio_opts.get("piper_exe", "piper"),
             voices=voices,
             piper_args=audio_opts.get("piper_args"),
-            log=print,
+            log=log_ts,
             debug=debug,
         )
     if provider == "azure":
@@ -224,7 +225,7 @@ def _build_provider(ctx: BuildContext, audio_opts: dict, debug: bool) -> TTSProv
             output_format=az.get("output_format", AZURE_DEFAULT_OUTPUT_FORMAT),
             timeout=int(az.get("timeout", 60)),
             retries=int(az.get("retries", 3)),
-            log=print,
+            log=log_ts,
             debug=debug,
         )
     if provider == "azure-sdk":
@@ -237,8 +238,9 @@ def _build_provider(ctx: BuildContext, audio_opts: dict, debug: bool) -> TTSProv
             voices=az.get("voices") or {},
             output_format=az.get("output_format", "riff-24khz-16bit-mono-pcm"),
             timeout=int(az.get("timeout", 60)),
-            log=print,
+            log=log_ts,
             debug=debug,
+            fallback_voices=az.get("voices_fallback") or {},
         )
     raise ValueError(f"Unknown audio provider '{provider}' (known: piper, azure, azure-sdk)")
 

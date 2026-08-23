@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from .audio_base import TTSProvider
@@ -47,6 +48,8 @@ class PiperProvider(TTSProvider):
         cmd = [self.piper_exe, "-m", str(voice), "-f", str(wav_path), *self.piper_args]
         if self.debug:
             self.log("  cmd: " + subprocess.list2cmdline(cmd))
+        started = time.monotonic()
+        self.log(f"  Piper: call started (voice={voice}, text length={len(text)} chars).")
         try:
             result = subprocess.run(cmd, input=text.encode("utf-8"), capture_output=True)
         except FileNotFoundError:
@@ -55,14 +58,16 @@ class PiperProvider(TTSProvider):
         except OSError as exc:
             self.log(f"  could not run Piper: {exc}")
             return False
+        elapsed = time.monotonic() - started
         if result.returncode != 0 or not wav_path.is_file():
             err = result.stderr.decode("utf-8", "replace").strip()
             out = result.stdout.decode("utf-8", "replace").strip()
             detail = err or out or "(no stderr output)"
             if not self.debug and len(detail) > 800:
                 detail = "…" + detail[-800:]
-            self.log(f"  Piper exit={result.returncode}; stderr: {detail}")
+            self.log(f"  Piper exit={result.returncode} after {elapsed:.1f}s; stderr: {detail}")
             if not self.debug:
                 self.log("  (set audio.debug: true for the full command + output)")
             return False
+        self.log(f"  Piper: call finished in {elapsed:.1f}s.")
         return True

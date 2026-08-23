@@ -93,43 +93,50 @@ class AzureSpeechProvider(TTSProvider):
                 },
             )
             if self.debug:
-                where = f" (attempt {attempt}/{self.retries})" if self.retries > 1 else ""
-                self.log(f"  POST {self.endpoint_url} voice={voice} format={self.output_format}{where}")
+                self.log(f"  POST {self.endpoint_url} voice={voice} format={self.output_format}")
+            where = f" (attempt {attempt}/{self.retries})" if self.retries > 1 else ""
+            call_started = time.monotonic()
+            self.log(f"  Azure Speech HTTP: call started ({self.endpoint_url}, voice={voice}){where}.")
             try:
                 with self._urlopen(request, timeout=self.timeout) as response:
                     data = response.read()
             except urllib.error.HTTPError as exc:
+                elapsed = time.monotonic() - call_started
                 detail = ""
                 try:
                     detail = exc.read().decode("utf-8", "replace").strip()
                 except Exception:  # noqa: BLE001
                     detail = ""
                 hint = " (check subscription key / region)" if exc.code in (401, 403) else ""
-                self.log(f"  Azure HTTP {exc.code}{hint}: {detail[-400:] or exc.reason}")
+                self.log(f"  Azure HTTP {exc.code}{hint} after {elapsed:.1f}s: {detail[-400:] or exc.reason}")
                 if exc.code in _AZURE_RETRYABLE_STATUS and not last:
                     self._backoff_sleep(attempt, exc.headers)
                     continue
                 return False
             except urllib.error.URLError as exc:
-                self.log(f"  Azure request failed: {exc.reason} (network / endpoint)")
+                elapsed = time.monotonic() - call_started
+                self.log(f"  Azure request failed after {elapsed:.1f}s: {exc.reason} (network / endpoint)")
                 if not last:
                     self._backoff_sleep(attempt, None)
                     continue
                 return False
             except OSError as exc:
-                self.log(f"  Azure request error: {exc}")
+                elapsed = time.monotonic() - call_started
+                self.log(f"  Azure request error after {elapsed:.1f}s: {exc}")
                 if not last:
                     self._backoff_sleep(attempt, None)
                     continue
                 return False
 
+            elapsed = time.monotonic() - call_started
             if not data:
-                self.log("  Azure returned an empty response.")
+                self.log(f"  Azure returned an empty response after {elapsed:.1f}s.")
                 if not last:
                     self._backoff_sleep(attempt, None)
                     continue
                 return False
             wav_path.write_bytes(data)
+            self.log(f"  Azure Speech HTTP: call finished in {elapsed:.1f}s.")
             if attempt > 1:
                 self.log(f"  Azure: recovered on attempt {attempt}/{self.retries}.")
             return True

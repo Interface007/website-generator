@@ -97,15 +97,19 @@ def convert_to_mp3(ffmpeg_exe: str, wav_path: Path, mp3_path: Path, bitrate: str
     if not ffmpeg_exe:
         return False
     cmd = [ffmpeg_exe, "-y", "-i", str(wav_path), "-b:a", bitrate, str(mp3_path)]
+    started = time.monotonic()
+    log(f"  ffmpeg: call started ({wav_path.name} -> {mp3_path.name}).")
     try:
         result = subprocess.run(cmd, capture_output=True)
     except OSError as exc:
         log(f"  could not run ffmpeg: {exc}")
         return False
+    elapsed = time.monotonic() - started
     if result.returncode != 0 or not mp3_path.is_file():
         err = result.stderr.decode("utf-8", "replace").strip()
-        log(f"  ffmpeg exit={result.returncode}; stderr: {err[-400:] or '(empty)'}")
+        log(f"  ffmpeg exit={result.returncode} after {elapsed:.1f}s; stderr: {err[-400:] or '(empty)'}")
         return False
+    log(f"  ffmpeg: call finished in {elapsed:.1f}s.")
     return True
 
 
