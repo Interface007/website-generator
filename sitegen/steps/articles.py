@@ -35,6 +35,8 @@ Options:
                         url_prefix     URL prefix (default "/<output_dir>")
                         batch_size     cap new syntheses per run (throttles a
                                        paid provider; omit for no cap)
+                        skip_slugs     article slugs that never get audio
+                                       (not synthesized, not reused)
                         player_template  snippet inserted into each article
                                        page (%AUDIO_URL% / %AUDIO_DURATION%)
                         debug          log provider details on failure
@@ -255,7 +257,12 @@ def _build_audio_map(
     if not audio_opts:
         return {}
 
-    existing_audio = _existing_audio_map(ctx, audio_opts, articles)
+    skip_slugs = set(audio_opts.get("skip_slugs") or [])
+    existing_audio = {
+        slug: result
+        for slug, result in _existing_audio_map(ctx, audio_opts, articles).items()
+        if slug not in skip_slugs
+    }
     if not audio_opts.get("enabled"):
         return existing_audio
 
@@ -293,6 +300,7 @@ def _build_audio_map(
         mp3_bitrate=audio_opts.get("mp3_bitrate", "96k"),
         fmt=fmt,
         batch_size=batch_size,
+        skip_slugs=skip_slugs,
     )
     return existing_audio | generated_audio
 

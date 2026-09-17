@@ -251,3 +251,28 @@ class TestAudioPlayerInjection:
         )
 
         assert html == original
+
+    def test_skip_slugs_suppress_existing_audio(self, tmp_path):
+        ctx = _ctx(tmp_path)
+        src = _make_articles(tmp_path)
+        slug = "article-2026-07-02-kosmos-aus-bronze-de-de"
+        (tmp_path / "templates" / "article-audio-player.html").write_text(
+            '<audio src="%AUDIO_URL%"></audio>\n', encoding="utf-8",
+        )
+        (ctx.out_dir / "audio").mkdir()
+        (ctx.out_dir / "audio" / f"{slug}.mp3").write_bytes(b"audio")
+
+        opts = _base_options(src)
+        opts["audio"] = {
+            "enabled": False,
+            "format": "mp3",
+            "output_dir": "audio",
+            "player_template": "article-audio-player.html",
+            "skip_slugs": [slug],
+        }
+
+        articles_step.run(ctx, opts)
+
+        assert "<audio" not in (ctx.out_dir / f"{slug}.html").read_text(encoding="utf-8")
+        data = json.loads((ctx.out_dir / "articles.json").read_text(encoding="utf-8"))
+        assert all("audioUrl" not in e for e in data)

@@ -52,9 +52,27 @@ _BLOCKQUOTE_RE = re.compile(r"(?m)^\s*>\s?")
 _LIST_MARKER_RE = re.compile(r"(?m)^\s*(?:[-*+]|\d+[.)])\s+")
 _TABLE_ROW_RE = re.compile(r"(?m)^\s*\|.*$")
 _RULE_RE = re.compile(r"(?m)^\s*([-*_=:])\1{2,}\s*$")
+_BLOCK_MATH_RE = re.compile(r"\$\$(.+?)\$\$", re.S)
 _INLINE_MATH_RE = re.compile(r"\$([^$\n]+)\$")
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _EMPHASIS_RE = re.compile(r"[*_`~]{1,3}")
+# MAI voices (e.g. de-DE-Mia:MAI-Voice-2) reject any request containing "|"
+# with "Bad MAI Request: invalid_request" — strip pipes (abs values, kets,
+# "a || b", "Org | Unit") before synthesis.
+_PIPE_RE = re.compile(r"[ \t]*\|+[ \t]*")
+_LATEX_CMD_RE = re.compile(r"\\([A-Za-z]+)")
+_LATEX_SYMBOLS = {
+    "leq": "≤", "le": "≤", "geq": "≥", "ge": "≥", "neq": "≠", "approx": "≈",
+    "cdot": "·", "times": "×", "to": "→", "rightarrow": "→", "sqrt": "√",
+    "infty": "∞", "pm": "±",
+    # Pure layout commands carry no spoken content.
+    "rangle": "", "langle": "", "left": "", "right": "", "quad": " ", "frac": "",
+}
+
+
+def _latex_cmd(match: re.Match) -> str:
+    name = match.group(1)
+    return _LATEX_SYMBOLS.get(name, name)
 
 
 def markdown_to_speech_text(title: str, body_markdown: str) -> str:
@@ -76,10 +94,14 @@ def markdown_to_speech_text(title: str, body_markdown: str) -> str:
     text = _LIST_MARKER_RE.sub("", text)
     text = _TABLE_ROW_RE.sub("", text)
     text = _RULE_RE.sub("", text)
+    text = _BLOCK_MATH_RE.sub(r"\1", text)
     text = _INLINE_MATH_RE.sub(r"\1", text)
     text = _HTML_TAG_RE.sub("", text)
     text = _EMPHASIS_RE.sub("", text)
     text = _html.unescape(text)
+    text = _LATEX_CMD_RE.sub(_latex_cmd, text)
+    text = text.replace("{,}", ",").replace("{", "").replace("}", "")
+    text = _PIPE_RE.sub(" ", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
 
@@ -153,6 +175,7 @@ def generate_article_audio(
     mp3_bitrate: str = "96k",
     fmt: str = "mp3",
     batch_size: int | None = None,
+    skip_slugs: Iterable[str] = (),
     cache_name: str = "audio-index.json",
     log: Callable[[str], None] = log_ts,
 ) -> dict[str, AudioResult]:
@@ -164,8 +187,12 @@ def generate_article_audio(
     that many have been generated, the remaining cache misses are deferred to a
     later run (still reusing anything already cached). ``None`` means no cap.
     This throttles the cost of a paid provider (e.g. Azure) when first
-    populating the audio library."""
+    populating the audio library.
+
+    ``skip_slugs`` lists articles that must never get audio: they are neither
+    synthesized nor reused, and any stale local file for them is pruned."""
     items = list(items)
+    skip = set(skip_slugs)
     if fmt == "mp3" and not ffmpeg_exe:
         log("WARNING: ffmpeg unavailable — falling back to WAV audio output.")
         fmt = "wav"
@@ -195,9 +222,12 @@ def generate_article_audio(
 
     results: dict[str, AudioResult] = {}
     new_cache: dict[str, dict] = {}
-    generated = reused = skipped = deferred = 0
+    generated = reused = skipped = deferred = excluded = 0
 
     for item in items:
+        if item.slug in skip:
+            excluded += 1
+            continue
         if item.lang in bad_langs:
             skipped += 1
             continue
@@ -256,9 +286,11 @@ def generate_article_audio(
         generated += 1
         log(f"Audio: {item.slug} ok in {time.monotonic() - item_started:.1f}s")
 
-    _prune_orphans(audio_dir, {item.slug for item in items}, cache_name, log)
+    _prune_orphans(audio_dir, {item.slug for item in items} - skip, cache_name, log)
     cache_path.write_text(json.dumps(new_cache, indent=2, ensure_ascii=False), encoding="utf-8")
     summary = f"Audio ({provider.name}): {generated} generated, {reused} reused, {skipped} skipped"
+    if excluded:
+        summary += f", {excluded} excluded (skip_slugs)"
     if deferred:
         summary += f", {deferred} deferred (batch_size={batch_size})"
     log(summary + ".")

@@ -82,6 +82,22 @@ class TestSpeechText:
         assert "| a |" not in out               # table row dropped
         assert "x^2" in out and "$" not in out
 
+    def test_pipes_removed_for_mai_voices(self):
+        # MAI-Voice-2 rejects any request containing "|" (invalid_request).
+        body = (
+            "Center for Astrophysics | Harvard.\n\n"
+            "Es gilt h = H(a || b).\n\n"
+            "Ein Zustand $|\\psi\\rangle$ und\n\n"
+            "$$|S| \\leq 2\\sqrt{2} \\approx 2{,}828$$\n"
+        )
+        out = markdown_to_speech_text("T", body)
+        assert "|" not in out
+        assert "Center for Astrophysics Harvard." in out
+        assert "H(a b)" in out
+        assert "Zustand psi und" in out
+        assert "S ≤ 2√2 ≈ 2,828" in out
+        assert "$" not in out and "\\" not in out
+
     def test_empty_body(self):
         assert markdown_to_speech_text("Title", "") == "Title."
 
@@ -180,6 +196,25 @@ class TestGenerateAudio:
                                provider=provider, fmt="wav", log=lambda m: None)
         assert not (audio_dir / "old-article.mp3").exists()       # pruned
         assert (audio_dir / "article-de.wav").is_file()
+
+    def test_skip_slugs_neither_generated_nor_reused(self, tmp_path):
+        audio_dir = tmp_path / "a"
+        p1 = FakeProvider({"de": "de.onnx", "en": "en.onnx"})
+        generate_article_audio(self._items(), audio_dir=audio_dir, url_prefix="/audio",
+                               provider=p1, fmt="wav", log=lambda m: None)
+        assert (audio_dir / "article-de.wav").is_file()
+
+        logs = []
+        p2 = FakeProvider({"de": "de.onnx", "en": "en.onnx"})
+        res = generate_article_audio(self._items(), audio_dir=audio_dir, url_prefix="/audio",
+                                     provider=p2, fmt="wav", skip_slugs=["article-de"],
+                                     log=logs.append)
+        assert set(res) == {"article-en"}
+        assert p2.synth_calls == []
+        assert not (audio_dir / "article-de.wav").exists()       # stale file pruned
+        index = json.loads((audio_dir / "audio-index.json").read_text(encoding="utf-8"))
+        assert "article-de" not in index
+        assert any("1 excluded (skip_slugs)" in m for m in logs)
 
     def _many_items(self, n):
         return [AudioItem(slug=f"article-{i}", lang="de", text=f"Text {i}.") for i in range(n)]
