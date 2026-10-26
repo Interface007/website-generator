@@ -260,6 +260,60 @@ class TestJsonLdArticlePages:
         assert all(value not in ("", None) for value in ld.values())
 
 
+class TestJsonLdAudio:
+    LD = (
+        '<script type="application/ld+json">\n  {\n    "@type": "Article",\n'
+        '    "headline": "H",\n'
+        '    "audio": {\n      "@type": "AudioObject",\n      "contentUrl": "",\n'
+        '      "encodingFormat": "audio/mpeg"\n    }\n  }\n  </script>'
+    )
+
+    def _template(self, tmp_path: Path) -> None:
+        (tmp_path / "templates" / "page-template.html.j2").write_text(
+            "<html>" + self.LD + "\n<main>\n{{ content }}\n</main></html>", encoding="utf-8"
+        )
+
+    @staticmethod
+    def _ld(html: str) -> dict:
+        start = html.index(">", html.index("application/ld+json")) + 1
+        return json.loads(html[start : html.index("</script>", start)])
+
+    def test_content_url_filled_when_audio_exists(self, tmp_path):
+        ctx = _ctx(tmp_path)
+        self._template(tmp_path)
+        slug = "article-2026-07-02-kosmos-aus-bronze-de-de"
+        (ctx.out_dir / "audio").mkdir()
+        (ctx.out_dir / "audio" / f"{slug}.mp3").write_bytes(b"audio")
+        opts = _base_options(_make_articles(tmp_path))
+        opts["audio"] = {"enabled": False, "format": "mp3", "output_dir": "audio"}
+
+        articles_step.run(ctx, opts)
+
+        de = self._ld((ctx.out_dir / f"{slug}.html").read_text(encoding="utf-8"))
+        assert de["audio"]["contentUrl"] == f"https://www.matzen.cloud/audio/{slug}.mp3"
+        en = self._ld(
+            (ctx.out_dir / "article-2026-07-02-cosmos-in-bronze-en-us.html").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert "audio" not in en                         # no audio -> object removed
+        assert en == {"@type": "Article", "headline": "H"}
+
+    def test_audio_object_removed_when_member_is_first(self):
+        html = '<script type="application/ld+json">{"audio": {"a": 1}, "b": 2}</script>'
+        assert json.loads(articles_step._apply_jsonld_audio(html, None)[35:-9]) == {"b": 2}
+
+    def test_url_is_json_escaped(self):
+        html = self.LD
+        out = articles_step._apply_jsonld_audio(html, 'https://x.org/a"</script>.mp3')
+        assert "</script>.mp3" not in out
+        assert self._ld(out)["audio"]["contentUrl"] == 'https://x.org/a"</script>.mp3'
+
+    def test_html_outside_jsonld_untouched(self):
+        html = '<p>"audio": {"x": 1}</p>'
+        assert articles_step._apply_jsonld_audio(html, None) == html
+
+
 class TestAudioPlayerInjection:
     def _options(self) -> dict:
         return {

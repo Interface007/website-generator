@@ -68,7 +68,7 @@ from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime
 from pathlib import PurePosixPath
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 from ..audio import (
     AudioItem,
@@ -143,8 +143,10 @@ def run(ctx: BuildContext, options: dict) -> None:
     for resolved in resolved_articles:
         html = renderer.render_page(resolved, disclaimers, is_article=True)
         slug = resolved.output_file_name.removesuffix(".html")
-        if slug in audio_map:
-            html = _inject_audio_player(ctx, options, html, audio_map[slug])
+        audio = audio_map.get(slug)
+        if audio is not None:
+            html = _inject_audio_player(ctx, options, html, audio)
+        html = _apply_jsonld_audio(html, _audio_content_url(ctx, options, audio))
         ctx.write_output(resolved.output_file_name, html)
         print(f"Rendered content page '{resolved.output_file_name}'.")
 
@@ -380,6 +382,44 @@ def _audio_output_path(ctx: BuildContext, options: dict, result: AudioResult):
         return None
     output_dir = (options.get("audio") or {}).get("output_dir", "audio")
     return ctx.out_dir / output_dir / audio_file
+
+
+_JSONLD_RE = re.compile(
+    r'(<script[^>]*type="application/ld\+json"[^>]*>)(.*?)(</script>)', re.DOTALL
+)
+_EMPTY_CONTENT_URL_RE = re.compile(r'"contentUrl"\s*:\s*""')
+# Flat "audio": {...} member, with the comma that separates it from a sibling.
+_AUDIO_MEMBER_RE = re.compile(
+    r',\s*"audio"\s*:\s*\{[^{}]*\}|"audio"\s*:\s*\{[^{}]*\}\s*,?'
+)
+
+
+def _audio_content_url(ctx: BuildContext, options: dict, result: AudioResult | None) -> str | None:
+    """Absolute URL of an article's audio file, or None when there is no
+    audio (no result, or the file is missing from the output)."""
+    if result is None:
+        return None
+    audio_path = _audio_output_path(ctx, options, result)
+    if audio_path is None or not audio_path.is_file():
+        return None
+    return urljoin(ctx.config.base_url, result.url)
+
+
+def _apply_jsonld_audio(html: str, audio_url: str | None) -> str:
+    """Fill the JSON-LD ``"contentUrl": ""`` placeholder with the audio URL,
+    or drop the whole ``"audio"`` object when the article has no audio, so
+    the block stays valid JSON."""
+
+    def fix(match: re.Match) -> str:
+        body = match.group(2)
+        if audio_url:
+            value = json.dumps(audio_url).replace("</", "<\\/")
+            body = _EMPTY_CONTENT_URL_RE.sub(lambda _: f'"contentUrl": {value}', body)
+        else:
+            body = _AUDIO_MEMBER_RE.sub("", body, count=1)
+        return match.group(1) + body + match.group(3)
+
+    return _JSONLD_RE.sub(fix, html)
 
 
 def _write_manifest(

@@ -92,6 +92,11 @@ For a schema.org `Article` JSON-LD block it additionally passes raw,
 {% endif %}
 ```
 
+On article pages the `articles` step post-processes `application/ld+json`
+blocks for audio: if the article has an audio file, the placeholder
+`"contentUrl": ""` is replaced by the absolute audio URL; otherwise the whole
+`"audio": {...}` member is removed so the block stays valid JSON.
+
 ## Releasing
 
 The version lives in `sitegen/__init__.py` and is picked up by `pyproject.toml`.
