@@ -238,6 +238,48 @@ class TestAudioPlayerInjection:
 
         assert '<audio src="/audio/article-de.mp3" data-duration="42"></audio>' in html
 
+    def test_injects_player_after_ai_label(self, tmp_path):
+        ctx = _ctx(tmp_path)
+        self._write_player_template(tmp_path)
+        (ctx.out_dir / "audio").mkdir()
+        (ctx.out_dir / "audio" / "article-de.mp3").write_bytes(b"audio")
+
+        html = articles_step._inject_audio_player(
+            ctx,
+            self._options(),
+            "<main>\n<div><p>AI label</p></div>\n<!-- /ai-label -->\n<p>Article</p>",
+            AudioResult(url="/audio/article-de.mp3", duration_sec=42),
+        )
+
+        assert html == (
+            "<main>\n<div><p>AI label</p></div>\n<!-- /ai-label -->\n"
+            '<audio src="/audio/article-de.mp3" data-duration="42"></audio>\n'
+            "<p>Article</p>"
+        )
+
+    def test_rendered_page_places_player_after_inline_ai_label(self, tmp_path):
+        ctx = _ctx(tmp_path)
+        src = _make_articles(tmp_path)
+        slug = "article-2026-07-02-kosmos-aus-bronze-de-de"
+        self._write_player_template(tmp_path)
+        (tmp_path / "templates" / "page-template.html.j2").write_text(
+            "<main>\n{{ meta_content }}{{ content }}\n</main>\n{{ disclaimer }}",
+            encoding="utf-8",
+        )
+        (tmp_path / "templates" / "ai-article-notice.html").write_text(
+            '<p class="ai-label">AI</p>', encoding="utf-8"
+        )
+        (ctx.out_dir / "audio").mkdir()
+        (ctx.out_dir / "audio" / f"{slug}.mp3").write_bytes(b"audio")
+
+        opts = _base_options(src)
+        opts["disclaimers"] = ["ai-article-notice.html"]
+        opts["audio"] = {"enabled": False, **self._options()["audio"]}
+        articles_step.run(ctx, opts)
+
+        html = (ctx.out_dir / f"{slug}.html").read_text(encoding="utf-8")
+        assert html.index('class="ai-label"') < html.index("<audio") < html.index("Rumpf")
+
     def test_skips_player_when_audio_file_is_missing(self, tmp_path):
         ctx = _ctx(tmp_path)
         self._write_player_template(tmp_path)

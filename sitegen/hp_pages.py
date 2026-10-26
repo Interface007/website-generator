@@ -22,6 +22,9 @@ from .textutil import (
 )
 
 AI_NOTICE_TEMPLATE = "ai-article-notice.html"
+# Emitted directly after the AI-content label block so later steps (e.g. the
+# audio player injection) can anchor content right behind it.
+AI_LABEL_END_MARKER = "<!-- /ai-label -->"
 
 
 @dataclass(frozen=True)
@@ -142,7 +145,7 @@ class HpPageRenderer:
             meta_content = (
                 '<div style="display:flex;align-items:center;flex-wrap:wrap;'
                 'gap:10px 16px;margin:0 0 24px;">\n'
-                f"{byline}\n{notice}\n</div>\n"
+                f"{byline}\n{notice}\n</div>\n{AI_LABEL_END_MARKER}\n"
             )
         elif meta_parts:
             meta_content = (
@@ -157,7 +160,12 @@ class HpPageRenderer:
             if inline_notice
             else disclaimer_paragraphs
         )
-        disclaimer = "\n".join(self.ctx.read_template_text(p) for p in bottom)
+        disclaimer = "\n".join(
+            self.ctx.read_template_text(p) + f"\n{AI_LABEL_END_MARKER}"
+            if p.lower() == AI_NOTICE_TEMPLATE
+            else self.ctx.read_template_text(p)
+            for p in bottom
+        )
 
         if article.date is not None:
             stamp = article.date.strftime("%Y-%m-%d")

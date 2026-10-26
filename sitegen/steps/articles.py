@@ -81,7 +81,7 @@ from ..audio import (
     markdown_to_speech_text,
 )
 from ..config import BuildContext
-from ..hp_pages import Article, HpPageRenderer, read_content
+from ..hp_pages import AI_LABEL_END_MARKER, Article, HpPageRenderer, read_content
 from ..logutil import log_ts
 from ..textutil import is_sync_artifact, replace_wiki_links
 
@@ -348,8 +348,9 @@ def _read_audio_cache(cache_path):
 
 
 def _inject_audio_player(ctx: BuildContext, options: dict, html: str, result: AudioResult) -> str:
-    """Insert the audio-player snippet immediately after the opening
-    ``<main>`` tag of an article page (opt-in via ``audio.player_template``)."""
+    """Insert the audio-player snippet directly after the AI-content label
+    (opt-in via ``audio.player_template``). Pages without an AI label get
+    the player immediately after the opening ``<main>`` tag."""
     template_name = (options.get("audio") or {}).get("player_template")
     if not template_name:
         return html
@@ -363,6 +364,12 @@ def _inject_audio_player(ctx: BuildContext, options: dict, html: str, result: Au
     snippet = snippet.replace("%AUDIO_URL%", result.url).replace(
         "%AUDIO_DURATION%", str(result.duration_sec)
     )
+    label_end = html.find(AI_LABEL_END_MARKER)
+    if label_end >= 0:
+        insert_at = label_end + len(AI_LABEL_END_MARKER)
+        if html.startswith("\n", insert_at):
+            insert_at += 1
+        return html[:insert_at] + snippet + html[insert_at:]
     return re.sub(r"(<main>\s*)", lambda m: m.group(1) + snippet, html, count=1)
 
 
