@@ -95,6 +95,16 @@ class HpPageRenderer:
       suffix not applied), Heading (<h1>, default: title), OgTitle,
       OgDescription, OgType (default "article"), Canonical, Portrait,
       PortraitModifier.
+
+    Template variables for a schema.org JSON-LD block (raw values, not
+    HTML-encoded — render them with ``|tojson``):
+      is_article      True only for pages of the ``articles`` step
+      ld_headline     Heading front matter, else the title
+      ld_description  description (Thema/Description)
+      ld_language     same as page_lang
+      ld_url          same as canonical_url
+      ld_published    content date as YYYY-MM-DD, or None
+      ld_modified     Modified/DateModified front matter, else ld_published
     """
 
     def __init__(self, ctx: BuildContext, options: dict):
@@ -121,6 +131,7 @@ class HpPageRenderer:
         article: Article,
         disclaimer_paragraphs: tuple[str, ...] = (),
         body_is_html: bool = False,
+        is_article: bool = False,
     ) -> str:
         meta_parts: list[str] = []
         if article.area_of_interest.strip():
@@ -191,23 +202,26 @@ class HpPageRenderer:
         if portrait_modifier is None:
             portrait_modifier = self.options.get("portrait_modifier", "")
 
+        # <html lang>: front matter override, else the article's locale tag
+        # (from the file name), else the site default.
+        page_lang = fm.get("Lang") or article.language or "en-US"
+        canonical_url = fm.get("Canonical") or self.ctx.config.base_url + article.output_file_name
+        ld_published = article.date.strftime("%Y-%m-%d") if article.date is not None else None
+
         template = self.ctx.jinja.get_template(
             fm.get("Template")
             or self.options.get("page_template", "page-template.html.j2")
         )
         return template.render(
             meta_dates=date_meta,
-            # <html lang>: front matter override, else the article's locale
-            # tag (from the file name), else the site default.
-            page_lang=fm.get("Lang") or article.language or "en-US",
+            page_lang=page_lang,
             hreflang_links=article.hreflang_html,
             page_title=html_encode(page_title),
             meta_description=html_encode(article.description),
             og_title=html_encode(fm.get("OgTitle") or article.title),
             og_description=html_encode(fm.get("OgDescription") or article.description),
             og_type=fm.get("OgType") or self.options.get("og_type", "article"),
-            canonical_url=fm.get("Canonical")
-            or self.ctx.config.base_url + article.output_file_name,
+            canonical_url=canonical_url,
             heading=html_encode(fm.get("Heading") or article.title),
             portrait_img=fm.get("Portrait") or self.options.get("portrait_image", "img/pp.jpg"),
             portrait_modifier=portrait_modifier,
@@ -215,4 +229,20 @@ class HpPageRenderer:
             meta_content=meta_content,
             content=content_html,
             foot_scripts=foot_scripts,
+            # JSON-LD values: raw (not HTML-encoded), meant for `|tojson`.
+            is_article=is_article,
+            ld_headline=fm.get("Heading") or article.title,
+            ld_description=article.description,
+            ld_language=page_lang,
+            ld_url=canonical_url,
+            ld_published=ld_published,
+            ld_modified=_iso_date(fm.get("Modified") or fm.get("DateModified")) or ld_published,
         )
+
+
+def _iso_date(value: str | None) -> str | None:
+    """Front matter date -> ``YYYY-MM-DD``; unparsable values pass through."""
+    if not value:
+        return None
+    parsed = try_parse_date(value)
+    return parsed.strftime("%Y-%m-%d") if parsed is not None else value

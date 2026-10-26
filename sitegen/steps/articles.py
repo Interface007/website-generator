@@ -141,7 +141,7 @@ def run(ctx: BuildContext, options: dict) -> None:
     audio_map = _build_audio_map(ctx, options, resolved_articles)
 
     for resolved in resolved_articles:
-        html = renderer.render_page(resolved, disclaimers)
+        html = renderer.render_page(resolved, disclaimers, is_article=True)
         slug = resolved.output_file_name.removesuffix(".html")
         if slug in audio_map:
             html = _inject_audio_player(ctx, options, html, audio_map[slug])

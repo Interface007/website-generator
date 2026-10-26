@@ -2,6 +2,7 @@
 overrides, content_page directory mode, copy_assets include patterns and
 excel_table splicing into a rendered output page."""
 
+import json
 from pathlib import Path
 
 import yaml
@@ -103,6 +104,70 @@ class TestFrontMatterOverrides:
         assert html.startswith("ALT <h1>T</h1>")
 
 
+class TestJsonLdVariables:
+    LD_TEMPLATE = (
+        '<script type="application/ld+json">{"@type": "Article", '
+        '"headline": {{ ld_headline|tojson }}, '
+        '"description": {{ ld_description|tojson }}, '
+        '"inLanguage": {{ ld_language|tojson }}, '
+        '"url": {{ ld_url|tojson }}, '
+        '"datePublished": {{ ld_published|tojson }}, '
+        '"dateModified": {{ ld_modified|tojson }}, '
+        '"isArticle": {{ is_article|tojson }}}</script>\n'
+        "<main>\n{{ content }}</main>\n"
+    )
+
+    def _render(self, tmp_path, text, name="2026-07-02 - Post - de-DE.md", **kwargs):
+        ctx = _ctx(tmp_path)
+        (tmp_path / "templates" / "page-ld.html.j2").write_text(self.LD_TEMPLATE, encoding="utf-8")
+        md = _write_md(tmp_path, name, text)
+        html = HpPageRenderer(ctx, {"page_template": "page-ld.html.j2"}).render_page(
+            read_content(md), **kwargs
+        )
+        start = html.index(">", html.index('<script type="application/ld+json"')) + 1
+        return html, json.loads(html[start : html.index("</script>", start)])
+
+    def test_all_values_from_article(self, tmp_path):
+        _, ld = self._render(
+            tmp_path,
+            "---\nThema: About things\nDatum: 2026-07-02\n---\n\n# Post Title\n\nBody\n",
+        )
+        assert ld == {
+            "@type": "Article",
+            "headline": "Post Title",
+            "description": "About things",
+            "inLanguage": "de-DE",
+            "url": "https://example.org/2026-07-02-post-de-de.html",
+            "datePublished": "2026-07-02",
+            "dateModified": "2026-07-02",
+            "isArticle": False,
+        }
+
+    def test_overrides_from_front_matter(self, tmp_path):
+        _, ld = self._render(
+            tmp_path,
+            "---\ntitle: T\nHeading: H & Co\nLang: en-GB\nCanonical: https://x.org/p\n"
+            "Datum: 2026-07-02\nModified: 2026-08-01\n---\nx",
+            is_article=True,
+        )
+        assert ld["headline"] == "H & Co"                # raw, not &amp;
+        assert ld["inLanguage"] == "en-GB"
+        assert ld["url"] == "https://x.org/p"
+        assert ld["dateModified"] == "2026-08-01"
+        assert ld["isArticle"] is True
+
+    def test_quotes_and_script_tag_stay_valid_json(self, tmp_path):
+        title = 'Say "hi" </script><b>&'
+        html, ld = self._render(tmp_path, f"---\ntitle: {title}\nDatum: 2026-07-02\n---\nx")
+        assert ld["headline"] == title
+        assert "</script><b>" not in html                # escaped by |tojson
+
+    def test_no_date_yields_null(self, tmp_path):
+        html, ld = self._render(tmp_path, "---\ntitle: Undated\n---\nx", name="undated.md")
+        assert ld["datePublished"] is None and ld["dateModified"] is None
+        assert '"datePublished": null' in html
+
+
 class TestContentPageDir:
     def test_renders_all_md_files(self, tmp_path):
         ctx = _ctx(tmp_path)
@@ -111,6 +176,15 @@ class TestContentPageDir:
         content_page.run(ctx, {"markdown_dir": str(tmp_path / "content")})
         assert (ctx.out_dir / "one.html").is_file()
         assert (ctx.out_dir / "404.html").is_file()   # numeric slug preserved
+
+    def test_content_pages_are_not_articles(self, tmp_path):
+        ctx = _ctx(tmp_path)
+        (tmp_path / "templates" / "page-template.html.j2").write_text(
+            "is_article={{ is_article }}", encoding="utf-8"
+        )
+        _write_md(tmp_path, "one.md", "---\ntitle: One\n---\nA")
+        content_page.run(ctx, {"markdown_dir": str(tmp_path / "content")})
+        assert (ctx.out_dir / "one.html").read_text(encoding="utf-8") == "is_article=False"
 
 
 class TestCopyAssetsInclude:

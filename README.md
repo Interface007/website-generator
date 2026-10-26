@@ -64,6 +64,34 @@ repository's venv:
 python -m pip install -e ..\website-generator
 ```
 
+## Page template variables
+
+`HpPageRenderer` (steps `articles` and `content_page`) passes, among others,
+`page_title`, `heading`, `page_lang`, `canonical_url`, `meta_dates`,
+`meta_content`, `content`, `disclaimer` and `foot_scripts` to the page template.
+
+For a schema.org `Article` JSON-LD block it additionally passes raw,
+**not HTML-encoded** values — output them with Jinja's `|tojson` filter:
+
+| Variable         | Value                                                                  |
+|------------------|------------------------------------------------------------------------|
+| `is_article`     | `True` only for article pages of the `articles` step (not the overview, not `content_page`) |
+| `ld_headline`    | front matter `Heading`, else the title                                 |
+| `ld_description` | description (`Thema` / `Description`)                                  |
+| `ld_language`    | same as `page_lang`                                                    |
+| `ld_url`         | same as `canonical_url`                                                |
+| `ld_published`   | content date as `YYYY-MM-DD`, or `None` (→ `null`)                     |
+| `ld_modified`    | front matter `Modified` / `DateModified`, else `ld_published`          |
+
+```jinja
+{% if is_article %}
+<script type="application/ld+json">
+{ "@type": "Article", "headline": {{ ld_headline|tojson }}, "url": {{ ld_url|tojson }},
+  "datePublished": {{ ld_published|tojson }}, "dateModified": {{ ld_modified|tojson }} }
+</script>
+{% endif %}
+```
+
 ## Releasing
 
 The version lives in `sitegen/__init__.py` and is picked up by `pyproject.toml`.

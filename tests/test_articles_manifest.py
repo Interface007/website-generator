@@ -208,6 +208,58 @@ class TestAudioGracefulDegradation:
         assert "<audio" not in en_html
 
 
+class TestJsonLdArticlePages:
+    def _ld_template(self, tmp_path: Path) -> None:
+        (tmp_path / "templates" / "page-template.html.j2").write_text(
+            "<html>{% if is_article %}<script type=\"application/ld+json\">{"
+            '"headline": {{ ld_headline|tojson }}, '
+            '"description": {{ ld_description|tojson }}, '
+            '"inLanguage": {{ ld_language|tojson }}, '
+            '"url": {{ ld_url|tojson }}, '
+            '"datePublished": {{ ld_published|tojson }}, '
+            '"dateModified": {{ ld_modified|tojson }}'
+            "}</script>{% endif %}\n<main>\n{{ content }}\n</main></html>",
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _extract_ld(html: str):
+        marker = '<script type="application/ld+json">'
+        if marker not in html:
+            return None
+        start = html.index(marker) + len(marker)
+        return json.loads(html[start : html.index("</script>", start)])
+
+    def test_is_article_only_for_article_pages(self, tmp_path):
+        ctx = _ctx(tmp_path)
+        self._ld_template(tmp_path)
+        articles_step.run(ctx, _base_options(_make_articles(tmp_path)))
+        article_pages = list(ctx.out_dir.glob("article-*.html"))
+        assert len(article_pages) == 2
+        for page in article_pages:
+            assert self._extract_ld(page.read_text(encoding="utf-8")) is not None
+        overview = (ctx.out_dir / "articles.html").read_text(encoding="utf-8")
+        assert self._extract_ld(overview) is None
+
+    def test_rendered_article_has_no_empty_fields(self, tmp_path):
+        ctx = _ctx(tmp_path)
+        self._ld_template(tmp_path)
+        articles_step.run(ctx, _base_options(_make_articles(tmp_path)))
+        html = (ctx.out_dir / "article-2026-07-02-cosmos-in-bronze-en-us.html").read_text(
+            encoding="utf-8"
+        )
+        ld = self._extract_ld(html)
+        assert ld == {
+            "headline": "Cosmos",
+            "description": "An ancient calculator",
+            "inLanguage": "en-US",
+            "url": "https://www.matzen.cloud/article-2026-07-02-cosmos-in-bronze-en-us.html",
+            "datePublished": "2026-07-02",
+            "dateModified": "2026-07-02",
+        }
+        assert all(value not in ("", None) for value in ld.values())
+
+
 class TestAudioPlayerInjection:
     def _options(self) -> dict:
         return {
