@@ -187,6 +187,33 @@ class TestGenerateAudio:
                                      log=lambda m: None)
         assert res["article-de"].url.endswith(".wav")
 
+    def test_failed_mp3_conversion_does_not_cache_stale_mp3(self, tmp_path):
+        audio_dir = tmp_path / "a"
+        items = [AudioItem("article-de", "de", "Alter Text.")]
+        generate_article_audio(items, audio_dir=audio_dir, url_prefix="/audio",
+                               provider=FakeProvider({"de": "de.onnx"}), ffmpeg_exe=FFMPEG,
+                               fmt="mp3", log=lambda m: None)
+        assert (audio_dir / "article-de.mp3").is_file()
+
+        # Article changes while ffmpeg cannot start -> WAV fallback.
+        changed = [AudioItem("article-de", "de", "Neuer Text.")]
+        res = generate_article_audio(changed, audio_dir=audio_dir, url_prefix="/audio",
+                                     provider=FakeProvider({"de": "de.onnx"}),
+                                     ffmpeg_exe=str(tmp_path / "missing-ffmpeg.exe"),
+                                     fmt="mp3", log=lambda m: None)
+        assert res["article-de"].url == "/audio/article-de.wav"
+        assert not (audio_dir / "article-de.mp3").exists()   # stale MP3 removed
+
+        # ffmpeg restored -> the new text is synthesized again as MP3.
+        p3 = FakeProvider({"de": "de.onnx"})
+        res = generate_article_audio(changed, audio_dir=audio_dir, url_prefix="/audio",
+                                     provider=p3, ffmpeg_exe=FFMPEG, fmt="mp3",
+                                     log=lambda m: None)
+        assert p3.synth_calls == ["article-de"]
+        assert res["article-de"].url == "/audio/article-de.mp3"
+        assert (audio_dir / "article-de.mp3").is_file()
+        assert not (audio_dir / "article-de.wav").exists()   # fallback WAV cleaned up
+
     def test_orphans_pruned(self, tmp_path):
         audio_dir = tmp_path / "a"
         audio_dir.mkdir()

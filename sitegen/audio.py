@@ -276,8 +276,13 @@ def generate_article_audio(
                 wav_path.unlink(missing_ok=True)
             else:
                 log(f"  MP3 conversion failed for {item.slug} — keeping WAV.")
+                # Drop any older or half-written MP3 and cache the WAV hash, so
+                # the next MP3 run misses the cache and regenerates instead of
+                # serving the stale recording.
+                target.unlink(missing_ok=True)
                 target = audio_dir / f"{item.slug}.wav"
                 url = f"{url_prefix}/{item.slug}.wav"
+                digest = _content_hash(item.text, provider.name, provider.voice_id(item.lang), "wav")
         else:
             wav_path.replace(target)
 
