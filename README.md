@@ -17,10 +17,11 @@ notices moved with them.
 
 ## Install
 
-Pin a tag from a consuming project's `requirements.txt`:
+Pin the wheel built and published for a release in a consuming project's
+`requirements.txt`:
 
 ```
-sitegen @ git+https://github.com/Interface007/website-generator.git@v1.0.0
+sitegen @ https://github.com/Interface007/website-generator/releases/download/v1.0.5/sitegen-1.0.5-py3-none-any.whl
 ```
 
 Then build a site:
@@ -97,12 +98,13 @@ blocks for audio: if the article has an audio file, the placeholder
 `"contentUrl": ""` is replaced by the absolute audio URL; otherwise the whole
 `"audio": {...}` member is removed so the block stays valid JSON.
 
-## Releasing
+## Releases
 
-The version lives in `sitegen/__init__.py` and is picked up by `pyproject.toml`.
-Bump it, commit, then tag — consumers pin the tag:
+Every push to `main` runs the release workflow. It increments the patch version
+in `sitegen/__init__.py`, runs the tests, builds the wheel and source distribution,
+generates an SPDX 2.3 JSON SBOM for the installed generator and its runtime
+dependency tree, then tags the version and publishes all three artifacts as a
+GitHub release. The generated version commit and tag are pushed to `main`.
 
-```powershell
-git tag v1.0.0
-git push origin v1.0.0
-```
+Consumers should pin the matching wheel URL in `requirements.txt`; the release
+also includes the source distribution and `sitegen-<version>.spdx.json` SBOM.

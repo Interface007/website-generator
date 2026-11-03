@@ -1,0 +1,124 @@
+name: Build and release sitegen
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sitegen-release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Increment patch version
+        id: version
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          version_file = Path("sitegen/__init__.py")
+          source = version_file.read_text(encoding="utf-8")
+          match = re.search(r'^__version__ = "(\d+)\.(\d+)\.(\d+)"$', source, re.MULTILINE)
+          if match is None:
+              raise SystemExit("Could not find a literal sitegen version in sitegen/__init__.py")
+          major, minor, patch = map(int, match.groups())
+          version = f"{major}.{minor}.{patch + 1}"
+          updated = source[:match.start(1)] + version + source[match.end(3):]
+          version_file.write_text(updated, encoding="utf-8", newline="\n")
+          with open(__import__("os").environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"version={version}\n")
+          PY
+
+      - name: Install build tools
+        run: python -m pip install --upgrade build
+
+      - name: Run tests
+        run: python -m pip install -e ".[dev]" && python -m pytest
+
+      - name: Build distributions
+        run: python -m build --sdist --wheel --outdir dist .
+
+      - name: Install the built package and runtime dependencies
+        run: python -m pip install --target sbom-env dist/sitegen-${{ steps.version.outputs.version }}-py3-none-any.whl
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: sbom-env
+          format: spdx-json
+          output-file: dist/sitegen-${{ steps.version.outputs.version }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Validate SPDX SBOM coverage
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          sbom = json.loads(Path(f"dist/sitegen-{version}.spdx.json").read_text(encoding="utf-8"))
+          if sbom.get("spdxVersion") != "SPDX-2.3":
+              raise SystemExit("SBOM is not SPDX-2.3 JSON")
+          names = {
+              re.sub(r"[-_.]+", "-", package.get("name", "")).lower()
+              for package in sbom.get("packages", [])
+          }
+          required = {
+              "sitegen",
+              "jinja2",
+              "pyyaml",
+              "markdown",
+              "openpyxl",
+              "pillow",
+              "imageio-ffmpeg",
+              "azure-cognitiveservices-speech",
+          }
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit(f"SBOM is missing runtime packages: {', '.join(missing)}")
+          print(f"Validated SPDX-2.3 SBOM with {len(names)} packages.")
+          PY
+
+      - name: Commit version and create tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sitegen/__init__.py
+          git commit -m "chore: release v${VERSION}"
+          git tag -a "v${VERSION}" -m "Release v${VERSION}"
+          git push --atomic origin HEAD:refs/heads/main "refs/tags/v${VERSION}"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/sitegen-${{ steps.version.outputs.version }}-py3-none-any.whl
+            dist/sitegen-${{ steps.version.outputs.version }}.tar.gz
+            dist/sitegen-${{ steps.version.outputs.version }}.spdx.json
